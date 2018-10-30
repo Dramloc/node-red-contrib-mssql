@@ -1,106 +1,96 @@
-module.exports = function(RED) {
-	'use strict';
-	var mustache = require('mustache');
-	var sql = require('mssql');
+const mustache = require('mustache');
+const sql = require('mssql');
 
-	function connection(config) {
-	    RED.nodes.createNode(this, config);
+module.exports = (RED) => {
+  function connection(config) {
+    RED.nodes.createNode(this, config);
 
-      var node = this;
-	    this.config = {
-            user: node.credentials.username,
-            password: node.credentials.password,
-						domain: node.credentials.domain,
-            server: config.server,
-            database: config.database,
-            options: {
-                           encrypt : config.encyption,
-                           useUTC: config.useUTC
-                       }
-        };
+    const node = this;
+    this.config = {
+      user: node.credentials.username,
+      password: node.credentials.password,
+      domain: node.credentials.domain,
+      server: config.server,
+      database: config.database,
+      options: {
+        encrypt: config.encyption,
+        useUTC: config.useUTC,
+      },
+    };
 
+    this.connection = sql;
+  }
 
-	    this.connection = sql;
-			/*
-			node.on('close',function(){
-   			node.pool.close(function(){});
-   		})
-			*/
-		}
+  RED.nodes.registerType('MSSQL-CN', connection, {
+    credentials: {
+      username: { type: 'text' },
+      password: { type: 'password' },
+      domain: { type: 'text' },
+    },
+  });
 
-  	RED.nodes.registerType('MSSQL-CN', connection, {
-	    credentials: {
-				username: {type:'text'},
-				password: {type:'password'},
-				domain: {type: 'text'}
-	    }
-	});
+  function mssql(config) {
+    RED.nodes.createNode(this, config);
+    const mssqlCN = RED.nodes.getNode(config.mssqlCN);
+    this.query = config.query;
+    this.connection = mssqlCN.connection;
+    this.config = mssqlCN.config;
+    this.outField = config.outField;
 
-  	function mssql(config) {
-	    RED.nodes.createNode(this, config);
-	    var mssqlCN = RED.nodes.getNode(config.mssqlCN);
-	    this.query = config.query;
-	    this.connection = mssqlCN.connection;
-	    this.config = mssqlCN.config;
-	    this.outField = config.outField;
+    const node = this;
+    const b = node.outField.split('.');
+    let i = 0;
+    let r = null;
+    let m = null;
+    const rec = (obj) => {
+      i += 1;
+      if (i < b.length && typeof obj[b[i - 1]] === 'object') {
+        rec(obj[b[i - 1]]); // not there yet - carry on digging
+      } else if (i === b.length) {
+        // we've finished so assign the value
+        obj[b[i - 1]] = r;
+        node.send(m);
+        node.status({});
+      } else {
+        obj[b[i - 1]] = {}; // needs to be a new object so create it
+        rec(obj[b[i - 1]]); // and carry on digging
+      }
+    };
 
-      var node = this;
-	    var b = node.outField.split('.');
-      var i = 0;
-      var r = null;
-      var m = null;
-      var rec = function(obj) {
-          i += 1;
-          if ((i < b.length) && (typeof obj[b[i-1]] === 'object')) {
-              rec(obj[b[i-1]]); // not there yet - carry on digging
+    node.on('input', (msg) => {
+      console.log(node.config);
+
+      node.connection
+        .connect(node.config)
+        .then(() => {
+          node.status({ fill: 'blue', shape: 'dot', text: 'requesting' });
+
+          let query = mustache.render(node.query, msg);
+
+          if (!query || query === '') {
+            query = msg.payload;
           }
-          else {
-               if (i === b.length) { // we've finished so assign the value
-                   obj[b[i-1]] = r;
-                   node.send(m);
-                   node.status({});
-               }
-               else {
-                   obj[b[i-1]] = {}; // needs to be a new object so create it
-                   rec(obj[b[i-1]]); // and carry on digging
-               }
-          }
-      };
 
-      node.on('input',function(msg){
-          console.log(node.config);
+          const request = new node.connection.Request();
 
-          node.connection.connect(node.config).then(function(){
-
-            node.status({fill:'blue',shape:'dot',text:'requesting'});
-
-            var query = mustache.render(node.query,msg);
-
-            if (!query || (query === '')) {
-                query = msg.payload;
-            }
-
-            var request = new node.connection.Request();
-
-            request.query(query).then(function (rows){
-        		i = 0;
-        		r = rows;
-        		m = msg;
-        		rec(msg);
-            }).catch(function(err) {
-                node.error(err);
-                node.status({fill:'red',shape:'ring',text:'Error'});
-                return;
+          request
+            .query(query)
+            .then((rows) => {
+              i = 0;
+              r = rows;
+              m = msg;
+              rec(msg);
+            })
+            .catch((err) => {
+              node.error(err);
+              node.status({ fill: 'red', shape: 'ring', text: 'Error' });
             });
-
-
-        }).catch(function(err) {
-    		node.error(err);
-    		node.status({fill:'red',shape:'ring',text:'Error'});
-    		return;
+        })
+        .catch((err) => {
+          node.error(err);
+          node.status({ fill: 'red', shape: 'ring', text: 'Error' });
         });
-      });
-
-	}
-  	RED.nodes.registerType('MSSQL', mssql);
+    });
+  }
+  RED.nodes.registerType('MSSQL', mssql);
 };
