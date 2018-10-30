@@ -2,10 +2,11 @@
   "name": "node-red-contrib-mssql",
   "version": "0.0.7",
   "description": "Node for node-red to connect to a Microsoft MS SQL Database",
-  "main": "odbc.js",
+  "main": "mssql.js",
   "dependencies": {
-    "mssql": ">=3.0.1 <4.0.0",
-    "mustache": "latest"
+    "lodash": "^4.17.11",
+    "mssql": "^4.2.2",
+    "mustache": "^3.0.0"
   },
   "node-red": {
     "nodes": {
